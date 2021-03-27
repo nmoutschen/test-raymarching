@@ -150,12 +150,12 @@ void main() {
         lightColor1 * dot(normalize(newLight1 - pos), normalize(estimateNormal(pos))),
         lightColor2 * dot(normalize(newLight2 - pos), normalize(estimateNormal(pos)))
       );
-      pc_fragColor = vec4(color, 1.);
+      pc_fragColor = vec4(color/2., 1.);
       return;
     }
     minDist = min(minDist, dist);
     pos = mod(pos + nv * dist + 100., 200.)-100.;
   }
   float c = clamp(1.-minDist, 0., 1.);
-  pc_fragColor = vec4(lightColor1*c, 1.);
+  pc_fragColor = vec4(max(lightColor1*c, lightColor2/8.), 1.);
 }
