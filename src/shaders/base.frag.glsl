@@ -8,73 +8,65 @@ precision highp int;
 uniform vec2 resolution;
 uniform float time;
 
-// X/Y/Z/R
-const vec4 spheres[] = vec4[](
-  vec4(0., 0., 100., 20.),
-  vec4(-20., 0., 100., 10.),
-  vec4(+20., 0., 100., 10.)
-);
+const float epsilon = 0.0001;
+const int maxSteps = 50;
+const vec3 light = vec3(-100., 50., 0.);
+const vec4 sphere = vec4(0., 0., 100., 30.);
 
-vec4 getColor(vec2 pos) {
-  return mod(vec4(
-    pos.x / 100.,
-    pos.y / 100.,
-    pos.x / 100.,
-    1.
-  ), 1.);
-}
-
-mat4 rotation3d(vec3 axis, float angle) {
+vec3 rotate(vec3 v, vec3 axis, vec3 origin, float angle) {
   axis = normalize(axis);
   float s = sin(angle);
   float c = cos(angle);
   float oc = 1.0 - c;
 
-  return mat4(
+  mat4 m = mat4(
 		oc * axis.x * axis.x + c,           oc * axis.x * axis.y - axis.z * s,  oc * axis.z * axis.x + axis.y * s,  0.0,
     oc * axis.x * axis.y + axis.z * s,  oc * axis.y * axis.y + c,           oc * axis.y * axis.z - axis.x * s,  0.0,
     oc * axis.z * axis.x - axis.y * s,  oc * axis.y * axis.z + axis.x * s,  oc * axis.z * axis.z + c,           0.0,
 		0.0,                                0.0,                                0.0,                                1.0
 	);
+
+  return (m * vec4(v - origin, 1.)).xyz + origin;
 }
 
-vec3 rotate(vec3 point, float angle) {
-  vec3 c = point - vec3(0., 0., 100.);
-  return (rotation3d(vec3(0., 1., 0.75), angle) * vec4(c, 1.)).xyz + vec3(0., 0., 100.);
+float unionSDF(float distA, float distB) {
+  return min(distA, distB);
 }
 
-float getDist(vec3 pos) {
-  float dist = 1./0.;
-  for(int i = 0; i < spheres.length(); i++) {
-    vec4 sphere = vec4(
-      rotate(spheres[i].xyz, time/100.),
-      spheres[i].w
-    );
-    dist = min(dist, distance(pos, sphere.xyz) - sphere.w);
-  }
-  return dist;
+float diffSDF(float distA, float distB) {
+  return max(distA, -distB);
 }
 
-float minDist(vec3 pos) {
-  vec3 nVec = normalize(pos);
-  vec3 curPos = pos;
-  float step = 0.;
-  float minDist = 1./0.;
-  for (int i = 0; i < 50; i++) {
-    float dist = getDist(curPos);
-    if (dist <= 0.001) {
-      return 0.;
-    }
-
-    if (minDist > dist) {
-      minDist = dist;
-    }
-    curPos += dist * nVec;
-  }
-
-  return minDist;
+float intersectSDF(float distA, float distB) {
+  return max(distA, distB);
 }
 
+// Signed distance to the sphere
+float sphereSDF(vec3 vector, float radius) {
+  return length(vector) - radius;
+}
+
+float boxSDF(vec3 vector, vec3 size) {
+  vec3 q = abs(vector) - size;
+  return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
+}
+
+float sceneSDF(vec3 pos) {
+  return diffSDF(
+    sphereSDF(pos - sphere.xyz, sphere.w),
+    boxSDF(pos - vec3(0., 20., 100.), vec3(20., 30., 30.))
+  );
+}
+
+vec3 estimateNormal(vec3 p) {
+    return normalize(vec3(
+        sceneSDF(vec3(p.x + epsilon, p.y, p.z)) - sceneSDF(vec3(p.x - epsilon, p.y, p.z)),
+        sceneSDF(vec3(p.x, p.y + epsilon, p.z)) - sceneSDF(vec3(p.x, p.y - epsilon, p.z)),
+        sceneSDF(vec3(p.x, p.y, p.z  + epsilon)) - sceneSDF(vec3(p.x, p.y, p.z - epsilon))
+    ));
+}
+
+// Normalized position
 vec3 normPos(vec3 pos) {
   float minR = max(resolution.x, resolution.y);
   return vec3(
@@ -85,12 +77,21 @@ vec3 normPos(vec3 pos) {
 
 void main() {
   vec3 pos = normPos(gl_FragCoord.xyz);
-  float dist = minDist(pos);
-  if (dist <= 0.) {
-    pc_fragColor = vec4(1., 0., 0., 1.);
-  } else if (dist < 1.) {
-    pc_fragColor = vec4(1.-vec3(dist), 1.);
-  } else {
-    pc_fragColor = vec4(0., 0., 0., 1.);
+  vec3 nv = normalize(pos);
+  float dist = 0.;
+  float minDist = 1./0.;
+
+  vec3 newLight = rotate(light, vec3(0., 1., 0.), vec3(0., 0., 100.), time/100.);
+
+  for (int i = 0; i < maxSteps; i++) {
+    dist = sceneSDF(pos);
+    if(dist < epsilon) {
+      float c = dot(normalize(newLight - pos), normalize(estimateNormal(pos)));
+      pc_fragColor = vec4(vec3(c), 1.);
+      return;
+    }
+    minDist = min(minDist, dist);
+    pos += nv * dist;
   }
+  pc_fragColor = vec4(vec3(1.-minDist), 1.);
 }
