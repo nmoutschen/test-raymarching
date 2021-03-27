@@ -9,9 +9,33 @@ uniform vec2 resolution;
 uniform float time;
 
 const float epsilon = 0.0001;
-const int maxSteps = 50;
-const vec3 light = vec3(-100., 50., 0.);
-const vec4 sphere = vec4(0., 0., 100., 30.);
+const int maxSteps = 255;
+const vec3 lightColor1 = vec3(1., 0.8359375, 0.6640625);
+const vec3 lightColor2 = vec3(1., 0.6640625, 0.8359375);
+const vec3[20] sierpIterations = vec3[20](
+  vec3(-1., -1., -1.),
+  vec3(-1., -1.,  0.),
+  vec3(-1., -1.,  1.),
+  vec3(-1.,  0., -1.),
+  vec3(-1.,  0.,  1.),
+  vec3(-1.,  1., -1.),
+  vec3(-1.,  1.,  0.),
+  vec3(-1.,  1.,  1.),
+
+  vec3( 0., -1., -1.),
+  vec3( 0., -1.,  1.),
+  vec3( 0.,  1., -1.),
+  vec3( 0.,  1.,  1.),
+
+  vec3( 1., -1., -1.),
+  vec3( 1., -1.,  0.),
+  vec3( 1., -1.,  1.),
+  vec3( 1.,  0., -1.),
+  vec3( 1.,  0.,  1.),
+  vec3( 1.,  1., -1.),
+  vec3( 1.,  1.,  0.),
+  vec3( 1.,  1.,  1.)
+);
 
 vec3 rotate(vec3 v, vec3 axis, vec3 origin, float angle) {
   axis = normalize(axis);
@@ -32,6 +56,9 @@ vec3 rotate(vec3 v, vec3 axis, vec3 origin, float angle) {
 float unionSDF(float distA, float distB) {
   return min(distA, distB);
 }
+float unionSDF(float distA, float distB, float distC) {
+  return min(distA, min(distB, distC));
+}
 
 float diffSDF(float distA, float distB) {
   return max(distA, -distB);
@@ -51,10 +78,39 @@ float boxSDF(vec3 vector, vec3 size) {
   return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
 }
 
-float sceneSDF(vec3 pos) {
+float sierpUnitSDF(vec3 vector, float size) {
   return diffSDF(
-    sphereSDF(pos - sphere.xyz, sphere.w),
-    boxSDF(pos - vec3(0., 20., 100.), vec3(20., 30., 30.))
+    boxSDF(vector, vec3(size)),
+    unionSDF(
+      boxSDF(vector, vec3(size/3., size/3., size*2.)),
+      boxSDF(vector, vec3(size/3., size*2., size/3.)),
+      boxSDF(vector, vec3(size*2., size/3., size/3.))
+    )
+  );
+}
+
+float sierpSDF(vec3 vector, float size) {
+  float minVal = 1./0.;
+  for (int i = 0; i < sierpIterations.length(); i++) {
+    minVal = min(minVal, sierpUnitSDF(vector + sierpIterations[i]*size, size/2.));
+  }
+  return minVal;
+}
+
+float smin(float a, float b, float k) {
+  float h = clamp(0.5 + 0.5*(a-b)/k, 0.0, 1.0);
+  return mix(a, b, h) - k*h*(1.0-h);
+}
+
+float sceneSDF(vec3 pos) {
+  // return sierpSDF(pos, 30.);
+  return unionSDF(
+    -smin(
+      sphereSDF(pos, 20.),
+      -boxSDF(pos, vec3(20.)),
+      5.
+    ),
+    boxSDF(pos, vec3(5.))
   );
 }
 
@@ -68,7 +124,7 @@ vec3 estimateNormal(vec3 p) {
 
 // Normalized position
 vec3 normPos(vec3 pos) {
-  float minR = max(resolution.x, resolution.y);
+  float minR = min(resolution.x, resolution.y);
   return vec3(
     (pos.xy - resolution/2.) / minR,
     pos.z
@@ -76,22 +132,30 @@ vec3 normPos(vec3 pos) {
 }
 
 void main() {
-  vec3 pos = normPos(gl_FragCoord.xyz);
-  vec3 nv = normalize(pos);
+  vec3 pos = vec3(0., 0., -100.);
+  pos = rotate(pos, vec3(0., 1., 1.), vec3(0.), time/200.);
+  vec3 light = pos;
+  vec3 nv = -normalize(normPos(vec3(gl_FragCoord.xy, -1.)));
+  nv = rotate(nv, vec3(0., 1., 1.), vec3(0.), time/200.);
   float dist = 0.;
   float minDist = 1./0.;
 
-  vec3 newLight = rotate(light, vec3(0., 1., 0.), vec3(0., 0., 100.), time/100.);
+  vec3 newLight1 = rotate(light, vec3(0., 1., 0.), vec3(0., 0., 0.), time/100.);
+  vec3 newLight2 = rotate(newLight1, vec3(0., 0., 1.), vec3(0., 0., 0.), 3.1415926535);
 
   for (int i = 0; i < maxSteps; i++) {
     dist = sceneSDF(pos);
     if(dist < epsilon) {
-      float c = dot(normalize(newLight - pos), normalize(estimateNormal(pos)));
-      pc_fragColor = vec4(vec3(c), 1.);
+      vec3 color = max(
+        lightColor1 * dot(normalize(newLight1 - pos), normalize(estimateNormal(pos))),
+        lightColor2 * dot(normalize(newLight2 - pos), normalize(estimateNormal(pos)))
+      );
+      pc_fragColor = vec4(color, 1.);
       return;
     }
     minDist = min(minDist, dist);
     pos += nv * dist;
   }
-  pc_fragColor = vec4(vec3(1.-minDist), 1.);
+  float c = clamp(1.-minDist, 0., 1.);
+  pc_fragColor = vec4(lightColor1*c, 1.);
 }
