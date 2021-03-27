@@ -9,7 +9,7 @@ uniform vec2 resolution;
 uniform float time;
 
 const float epsilon = 0.0001;
-const int maxSteps = 255;
+const int maxSteps = 50;
 const vec3 lightColor1 = vec3(1., 0.8359375, 0.6640625);
 const vec3 lightColor2 = vec3(1., 0.6640625, 0.8359375);
 const vec3[20] sierpIterations = vec3[20](
@@ -103,7 +103,7 @@ float smin(float a, float b, float k) {
 }
 
 float sceneSDF(vec3 pos) {
-  // return sierpSDF(pos, 30.);
+  // pos = mod(pos+100., 200.)-100.;
   return unionSDF(
     -smin(
       sphereSDF(pos, 20.),
@@ -133,10 +133,10 @@ vec3 normPos(vec3 pos) {
 
 void main() {
   vec3 pos = vec3(0., 0., -100.);
-  pos = rotate(pos, vec3(0., 1., 1.), vec3(0.), time/200.);
+  pos = rotate(pos, vec3(0., 1., 1.), vec3(0.), time/500.);
   vec3 light = pos;
   vec3 nv = -normalize(normPos(vec3(gl_FragCoord.xy, -1.)));
-  nv = rotate(nv, vec3(0., 1., 1.), vec3(0.), time/200.);
+  nv = rotate(nv, vec3(0., 1., 1.), vec3(0.), time/500.);
   float dist = 0.;
   float minDist = 1./0.;
 
@@ -154,7 +154,7 @@ void main() {
       return;
     }
     minDist = min(minDist, dist);
-    pos += nv * dist;
+    pos = mod(pos + nv * dist + 100., 200.)-100.;
   }
   float c = clamp(1.-minDist, 0., 1.);
   pc_fragColor = vec4(lightColor1*c, 1.);
