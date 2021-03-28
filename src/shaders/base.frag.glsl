@@ -12,30 +12,6 @@ const float epsilon = 0.0001;
 const int maxSteps = 50;
 const vec3 lightColor1 = vec3(1., 0.8359375, 0.6640625);
 const vec3 lightColor2 = vec3(1., 0.6640625, 0.8359375);
-const vec3[20] sierpIterations = vec3[20](
-  vec3(-1., -1., -1.),
-  vec3(-1., -1.,  0.),
-  vec3(-1., -1.,  1.),
-  vec3(-1.,  0., -1.),
-  vec3(-1.,  0.,  1.),
-  vec3(-1.,  1., -1.),
-  vec3(-1.,  1.,  0.),
-  vec3(-1.,  1.,  1.),
-
-  vec3( 0., -1., -1.),
-  vec3( 0., -1.,  1.),
-  vec3( 0.,  1., -1.),
-  vec3( 0.,  1.,  1.),
-
-  vec3( 1., -1., -1.),
-  vec3( 1., -1.,  0.),
-  vec3( 1., -1.,  1.),
-  vec3( 1.,  0., -1.),
-  vec3( 1.,  0.,  1.),
-  vec3( 1.,  1., -1.),
-  vec3( 1.,  1.,  0.),
-  vec3( 1.,  1.,  1.)
-);
 
 vec3 rotate(vec3 v, vec3 axis, vec3 origin, float angle) {
   axis = normalize(axis);
@@ -56,9 +32,6 @@ vec3 rotate(vec3 v, vec3 axis, vec3 origin, float angle) {
 float unionSDF(float distA, float distB) {
   return min(distA, distB);
 }
-float unionSDF(float distA, float distB, float distC) {
-  return min(distA, min(distB, distC));
-}
 
 float diffSDF(float distA, float distB) {
   return max(distA, -distB);
@@ -76,25 +49,6 @@ float sphereSDF(vec3 vector, float radius) {
 float boxSDF(vec3 vector, vec3 size) {
   vec3 q = abs(vector) - size;
   return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
-}
-
-float sierpUnitSDF(vec3 vector, float size) {
-  return diffSDF(
-    boxSDF(vector, vec3(size)),
-    unionSDF(
-      boxSDF(vector, vec3(size/3., size/3., size*2.)),
-      boxSDF(vector, vec3(size/3., size*2., size/3.)),
-      boxSDF(vector, vec3(size*2., size/3., size/3.))
-    )
-  );
-}
-
-float sierpSDF(vec3 vector, float size) {
-  float minVal = 1./0.;
-  for (int i = 0; i < sierpIterations.length(); i++) {
-    minVal = min(minVal, sierpUnitSDF(vector + sierpIterations[i]*size, size/2.));
-  }
-  return minVal;
 }
 
 float smin(float a, float b, float k) {
