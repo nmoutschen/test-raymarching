@@ -9,12 +9,15 @@ uniform vec2 resolution;
 uniform float time;
 
 const float epsilon = 0.0001;
+const float PI = 3.1415926538;
+const float fl = 1.0;
+
 const int maxSteps = 50;
 const int mandelIter = 15;
+const float mandelIterStep = 2.5;
 const float cmr2 = 1.5;
 const float cfr2 = 3.0;
-const float fl = 1.;
-const float PI = 3.1415926538;
+const float cameraEdges = 7.0;
 
 vec3 rotate(vec3 v, vec3 axis, vec3 origin, float angle) {
   axis = normalize(axis);
@@ -71,28 +74,6 @@ vec3 hsl2rgb(vec3 hsl) {
     return rgb;
 }
 
-float unionSDF(float distA, float distB) {
-  return min(distA, distB);
-}
-
-float diffSDF(float distA, float distB) {
-  return max(distA, -distB);
-}
-
-float intersectSDF(float distA, float distB) {
-  return max(distA, distB);
-}
-
-// Signed distance to the sphere
-float sphereSDF(vec3 vector, float radius) {
-  return length(vector) - radius;
-}
-
-float boxSDF(vec3 vector, vec3 size) {
-  vec3 q = abs(vector) - size;
-  return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
-}
-
 float smin(float a, float b, float k) {
   float h = clamp(0.5 + 0.5*(a-b)/k, 0.0, 1.0);
   return mix(a, b, h) - k*h*(1.0-h);
@@ -113,13 +94,13 @@ void sphereFold(inout vec3 z, inout float dz) {
     dz *= temp;
   }
 
-  z = rotate(z, vec3(1., 1., 0.), vec3(0.), time/500.);
+  z = rotate(z, vec3(sin(time/200.), 1., 0.), vec3(0.), time/500.);
 }
 
 void boxFold(inout vec3 z, inout float dz) {
   z = clamp(z, -fl, fl) * 2.0 - z;
 
-  z = rotate(z, vec3(-1., -1., 0.), vec3(0.), time/1000.);
+  z = rotate(z, vec3(cos(time/400.), -1., 0.), vec3(0.), time/1000.);
 }
 
 float mandelboxSDF(vec3 pos) {
@@ -129,8 +110,8 @@ float mandelboxSDF(vec3 pos) {
       boxFold(pos, dr);
       sphereFold(pos, dr);
 
-      pos = 2. * pos + offset;
-      dr = dr * abs(2.) + 1.;
+      pos = mandelIterStep * pos + offset;
+      dr = dr * abs(mandelIterStep) + 1.;
   }
 
   float r = length(pos);
@@ -157,7 +138,7 @@ void main() {
   // Calculate movement vector
   vec3 nv = normPos(vec3(gl_FragCoord.xy, -1.));
   // nv = vec3(abs(nv.xy), nv.z);
-  float angle = abs(mod(atan(nv.x, nv.y), PI*2./3.) - PI/3.);
+  float angle = abs(mod(atan(nv.x, nv.y), PI*2./cameraEdges) - PI/cameraEdges);
   float radius = length(nv.xy);
   nv = vec3(
     radius * cos(angle),
