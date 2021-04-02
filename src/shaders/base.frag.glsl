@@ -10,8 +10,11 @@ uniform float time;
 
 const float epsilon = 0.0001;
 const int maxSteps = 50;
-const vec3 lightColor1 = vec3(1., 0.8359375, 0.6640625);
-const vec3 lightColor2 = vec3(1., 0.6640625, 0.8359375);
+const int mandelIter = 15;
+const float cmr2 = 1.5;
+const float cfr2 = 3.0;
+const float fl = 1.;
+const float PI = 3.1415926538;
 
 vec3 rotate(vec3 v, vec3 axis, vec3 origin, float angle) {
   axis = normalize(axis);
@@ -27,6 +30,45 @@ vec3 rotate(vec3 v, vec3 axis, vec3 origin, float angle) {
 	);
 
   return (m * vec4(v - origin, 1.)).xyz + origin;
+}
+
+float hue2rgb(float f1, float f2, float hue) {
+    if (hue < 0.0)
+        hue += 1.0;
+    else if (hue > 1.0)
+        hue -= 1.0;
+    float res;
+    if ((6.0 * hue) < 1.0)
+        res = f1 + (f2 - f1) * 6.0 * hue;
+    else if ((2.0 * hue) < 1.0)
+        res = f2;
+    else if ((3.0 * hue) < 2.0)
+        res = f1 + (f2 - f1) * ((2.0 / 3.0) - hue) * 6.0;
+    else
+        res = f1;
+    return res;
+}
+
+vec3 hsl2rgb(vec3 hsl) {
+    vec3 rgb;
+    
+    if (hsl.y == 0.0) {
+        rgb = vec3(hsl.z); // Luminance
+    } else {
+        float f2;
+        
+        if (hsl.z < 0.5)
+            f2 = hsl.z * (1.0 + hsl.y);
+        else
+            f2 = hsl.z + hsl.y - hsl.y * hsl.z;
+            
+        float f1 = 2.0 * hsl.z - f2;
+        
+        rgb.r = hue2rgb(f1, f2, hsl.x + (1.0/3.0));
+        rgb.g = hue2rgb(f1, f2, hsl.x);
+        rgb.b = hue2rgb(f1, f2, hsl.x - (1.0/3.0));
+    }   
+    return rgb;
 }
 
 float unionSDF(float distA, float distB) {
@@ -56,60 +98,90 @@ float smin(float a, float b, float k) {
   return mix(a, b, h) - k*h*(1.0-h);
 }
 
-float sceneSDF(vec3 pos) {
-  // pos = mod(pos+100., 200.)-100.;
-  return unionSDF(
-    -smin(
-      sphereSDF(pos, 20.),
-      -boxSDF(pos, vec3(20.)),
-      5.
-    ),
-    boxSDF(pos, vec3(5.))
-  );
+void sphereFold(inout vec3 z, inout float dz) {
+  float mr2 = cmr2;
+  float fr2 = cfr2;
+
+  float r2 = dot(z, z);
+  if (r2<mr2) {
+    float temp = fr2/mr2;
+    z *= temp;
+    dz *= temp;
+  } else if(r2<fr2) {
+    float temp = fr2/r2;
+    z *= temp;
+    dz *= temp;
+  }
+
+  z = rotate(z, vec3(1., 1., 0.), vec3(0.), time/500.);
 }
 
-vec3 estimateNormal(vec3 p) {
-    return normalize(vec3(
-        sceneSDF(vec3(p.x + epsilon, p.y, p.z)) - sceneSDF(vec3(p.x - epsilon, p.y, p.z)),
-        sceneSDF(vec3(p.x, p.y + epsilon, p.z)) - sceneSDF(vec3(p.x, p.y - epsilon, p.z)),
-        sceneSDF(vec3(p.x, p.y, p.z  + epsilon)) - sceneSDF(vec3(p.x, p.y, p.z - epsilon))
-    ));
+void boxFold(inout vec3 z, inout float dz) {
+  z = clamp(z, -fl, fl) * 2.0 - z;
+
+  z = rotate(z, vec3(-1., -1., 0.), vec3(0.), time/1000.);
+}
+
+float mandelboxSDF(vec3 pos) {
+  vec3 offset = pos;
+  float dr = 1.0;
+  for (int i=0; i < mandelIter; i++) {
+      boxFold(pos, dr);
+      sphereFold(pos, dr);
+
+      pos = 2. * pos + offset;
+      dr = dr * abs(2.) + 1.;
+  }
+
+  float r = length(pos);
+  return r/abs(dr);
+}
+
+float sceneSDF(vec3 pos) {
+  return mandelboxSDF(pos);
 }
 
 // Normalized position
 vec3 normPos(vec3 pos) {
-  float minR = min(resolution.x, resolution.y);
+  float r = min(resolution.x, resolution.y);
   return vec3(
-    (pos.xy - resolution/2.) / minR,
+    (pos.xy - resolution/2.) / r,
     pos.z
   );
 }
 
 void main() {
-  vec3 pos = vec3(0., 0., -100.);
-  pos = rotate(pos, vec3(0., 1., 1.), vec3(0.), time/500.);
+  vec3 pos = vec3(0., 0., -10.);
   vec3 light = pos;
-  vec3 nv = -normalize(normPos(vec3(gl_FragCoord.xy, -1.)));
-  nv = rotate(nv, vec3(0., 1., 1.), vec3(0.), time/500.);
+
+  // Calculate movement vector
+  vec3 nv = normPos(vec3(gl_FragCoord.xy, -1.));
+  // nv = vec3(abs(nv.xy), nv.z);
+  float angle = abs(mod(atan(nv.x, nv.y), PI*2./3.) - PI/3.);
+  float radius = length(nv.xy);
+  nv = vec3(
+    radius * cos(angle),
+    radius * sin(angle),
+    nv.z
+  );
+  nv = -normalize(nv);
   float dist = 0.;
   float minDist = 1./0.;
 
-  vec3 newLight1 = rotate(light, vec3(0., 1., 0.), vec3(0., 0., 0.), time/100.);
-  vec3 newLight2 = rotate(newLight1, vec3(0., 0., 1.), vec3(0., 0., 0.), 3.1415926535);
-
-  for (int i = 0; i < maxSteps; i++) {
+  int i = 0;
+  for (; i < maxSteps; i++) {
     dist = sceneSDF(pos);
-    if(dist < epsilon) {
-      vec3 color = max(
-        lightColor1 * dot(normalize(newLight1 - pos), normalize(estimateNormal(pos))),
-        lightColor2 * dot(normalize(newLight2 - pos), normalize(estimateNormal(pos)))
-      );
-      pc_fragColor = vec4(color/2., 1.);
-      return;
-    }
     minDist = min(minDist, dist);
-    pos = mod(pos + nv * dist + 100., 200.)-100.;
+    if(dist < epsilon) {
+      break;
+    }
+    pos += nv * dist;
   }
-  float c = clamp(1.-minDist, 0., 1.);
-  pc_fragColor = vec4(max(lightColor1*c, lightColor2/8.), 1.);
+  float c1 = 1.-float(i)/float(maxSteps);
+  // float c2 = mod(-minDist*8000. + time/500., 1.);
+  float c2 = mod(pos.z + time/500., 1.);
+
+  // vec3 color = hsl2rgb(vec3(mod(time/500., 1.), 0.5, 0.75*c2));
+  vec3 color = hsl2rgb(vec3(c2, 0.5, 0.75*c1));
+  pc_fragColor = vec4(color, 1.);
 }
